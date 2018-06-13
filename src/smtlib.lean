@@ -11,15 +11,11 @@ structure declare : Type :=
   (sort : string)
 
 attribute [reducible]
-def symbol := string
-attribute [reducible]
 def sort := string
-
-inductive literal
---currently we don't really need it
 
 -- term as in smtlib
 inductive term : Type
+| literal : literal → term
 | symbol : symbol → term
 | app : symbol → list term → term -- application
 
@@ -45,7 +41,8 @@ inductive cmd : Type
 
 mutual def term_from_sexp, list_term_from_sexp
 with term_from_sexp : sexp → except string term 
-| (! symbol) := except.ok $ term.symbol symbol
+| (! s) := except.ok $ term.symbol s
+| (# lit) := except.ok $ term.literal lit
 | (. (! func) :: l) := term.app func <$> monad.sequence (list_term_from_sexp l)
 | _ := except.error "doesn't seem like a term"
 with list_term_from_sexp : list sexp → list (except string term)
@@ -78,6 +75,7 @@ end
 
 mutual def term_to_sexp, list_term_to_sexp
 with term_to_sexp : term → sexp
+| (term.literal l) := # l
 | (term.symbol i) := ! i
 | (term.app f l) := . (! f) :: list_term_to_sexp l
 with list_term_to_sexp : list term → list sexp
@@ -96,9 +94,9 @@ instance : has_to_sexp model :=
 instance has_to_string_via_sexp {α : Type } [has_to_sexp α] : has_to_string α :=
 ⟨ λ a, to_string $ to_sexp a ⟩
 
-instance has_from_string_via_sexp {α : Type _} [has_from_sexp α] : has_from_string α :=
+instance has_from_buffer_via_sexp {α : Type _} [has_from_sexp α] : has_from_buffer α :=
 ⟨ λ s, do
-  e ← from_string s,
+  e ← from_buffer s,
   from_sexp e
 ⟩
 
@@ -114,18 +112,11 @@ def cmd_to_sexp : cmd → sexp
 instance : has_to_sexp cmd :=
 ⟨ cmd_to_sexp ⟩
 
-#eval (to_string $ . [! "and",  . [! "or", (. [ ]), ! "a"], ! "b"])
 
-instance except_has_to_string {α β : Type} [has_to_string α] [has_to_string β] : has_to_string (except α β) :=
-⟨λ e, match e with
-| except.error a := "ERROR : " ++ to_string a
-| except.ok b := "OK : " ++ to_string b
-end
-⟩
+attribute [reducible]
+def proof := sexp
 
-#eval to_string (from_string "(and (or () b  )  c)" : except parse_error sexp)
-
-def solve_type := io (except parse_error (except string model))
+def solve_type := io (except parse_error (except proof model))
 
 def solve (declares : list declare) (asserts : list term) : solve_type := 
 do child ← io.proc.spawn{
@@ -152,32 +143,35 @@ do child ← io.proc.spawn{
   | "sat\n" := do
     write_cmd $ cmd.get_model,
     io.fs.close stdin,
-    s ← buffer.to_string <$> io.fs.read_to_end stdout,
-    let exp := (from_string s : except parse_error model),
-    match exp with
+    cb ← io.fs.read_to_end stdout,
+    let model' := (from_buffer cb : except parse_error model),
+    match model' with
     | except.ok m := (return $ except.ok $ except.ok m : solve_type)
     | except.error e := (return $ except.error e : solve_type)
     end
   | "unsat\n" := do
     write_cmd $ cmd.get_proof,
     io.fs.close stdin,
-    s <- buffer.to_string <$> io.fs.read_to_end stdout,
-    return $ except.ok $ except.error s
+    cb <- io.fs.read_to_end stdout,
+    io.put_str_ln cb.to_string,
+    let prf' := (from_buffer cb : except parse_error sexp),
+    match prf' with
+    | except.ok prf := (return $ except.ok $ except.error prf : solve_type)
+    | except.error e := (return $ except.error e : solve_type)
+    end
   | _ := do
   write_cmd $ cmd.exit,
   io.fs.close stdin,
   return $ except.error $ string.append "strange satisfiability "  sat
   end,
-  io.put_str_ln "mark",
   io.fs.close stdout,
 
-  -- FIXME: should wait for it to exit
-  --_ ← io.proc.wait child,
+  _ ← io.proc.wait child,
   return r
 
 def test_solve : io unit :=
 do
-  r ← solve [declare.mk "a" "Bool", declare.mk "b" "Bool"] [term.app "or" [term.symbol "a", term.symbol "b"]],
+  r ← solve [] [term.symbol "false"],
   io.put_str_ln $ to_string r
 
 #eval test_solve

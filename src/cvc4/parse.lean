@@ -1,76 +1,18 @@
 -- the LFSC proofs specifically from CVC4
+import ..sexp
+import ..smtlib
+import .types
 
-
-import .sexp
-import .smtlib
 -- set_option trace.eqn_compiler.elim_match true
 
-namespace cvc4
+universes u v
 
-attribute [reducible]
-def var := string
-
-attribute [reducible]
+namespace parse
 def error := string
-
-@[derive decidable_eq]
-inductive lit
-| pos : var → lit
-| neg : var → lit
-
-
-def clause := list lit
-
-inductive resolution : Type
-| Q : resolution × resolution → var → resolution
-| R : resolution × resolution → var → resolution
-| atom : var → resolution
-
--- ast or asf
-structure ast_f : Type :=
-(tf : bool)
-(atom : var)
-(var : var)
-
-structure satlem :=
-(as : list ast_f)
-(arg : sexp)
-(var : var)
-
-structure ass_term :=
-(var : var)
-(sort : sort)
-
-structure ass_th_holds :=
-(var : var)
-(term : term)
-
-structure lat :=
-(var : var)
-(term : term)
-
-structure th_let_pf :=
-(var : var)
-(term : term)
-
-structure decl_atom :=
-(exp : sexp)
-(atom : var)
-(var : var)
-
 attribute [reducible]
 def parser (α : Type) := sexp → except error (α × sexp)
 attribute [reducible]
 def matcher (α : Type) := sexp → except error α
-
-structure proof : Type :=
-  (ass_term : list ass_term)
-  (ass_th_holds : list ass_th_holds)
-  (lat : list lat)
-  (th_let_pf : list th_let_pf)
-  (decl_atom : list decl_atom)
-  (sat_lem : list satlem)
-  (resolutions : resolution)
 
 def match_ass_term : parser ass_term
 | (. [! "%", ! v, . [! "term", ! s], t]) := except.ok (ass_term.mk v s, t)
@@ -126,14 +68,38 @@ def match_satlem : parser satlem
   return (satlem.mk l arg v, t1)
 | (_) := except.error "not satlem"
 
-def match_resolution : matcher resolution
-| (. [! q_r, ! "_", ! "_", t0, t1, ! v]) := (do
-  r0 ← match_resolution t0,
-  r1 ← match_resolution t1,
-  match q_r with
-  | "Q" := (except.ok $ resolution.Q (r0, r1) v : except string resolution)
-  | "R" := (except.ok $ resolution.R (r0, r1) v : except string resolution)
-  | _ := (except.error "not resolution" : except string resolution)
-  end)
+def string_to_qr : string → except string rq
+| "Q" := except.ok rq.q
+| "R" := except.ok rq.r
+| _ := except.error "neither Q or R"
+
+--TODO: remove meta
+-- lean's induction elaborator is very weak, to make this def without meta, we will need a parsing state along with recursing
+meta mutual def match_res_list, match_res
+with match_res_list : list sexp → except string (res string)
+| [! rq_, ! "_", ! "_", t0, t1, ! v] := res.node <$> (string_to_qr rq_) <*> (match_res t0) <*> (match_res t1) <*> (except.ok v)
+| _ := except.error "not resolution"
+with match_res : sexp → except string (res string)
+| (. l) := match_res_list l
+| (! v) := except.ok $ res.leaf v
 | (_) := except.error "not resolution"
-end cvc4
+
+def match_header : parser unit
+| (. [! "proof", t]) := except.ok $ ((), t)
+| (_) := except.error "unrecognized header"
+
+meta def match_proof : matcher (proof string) := λ t, do
+  (_, t) ← match_header t,
+  (ass_term_, t) ← many match_ass_term t,
+  (ass_th_hold_, t) ← many match_ass_th_holds t,
+  (lat_, t) ← many match_lat t,
+  (th_let_pf_, t) ← many match_th_let_pf t,
+  (decl_atom_, t) ← many match_decl_atom t,
+  (satlem_, t) ← many match_satlem t,
+  res_ ← match_res t,
+  return $ proof.mk ass_term_ ass_th_hold_ lat_ th_let_pf_ decl_atom_ satlem_ res_
+
+meta instance : has_from_sexp (proof string) :=
+⟨ match_proof ⟩
+
+end parse

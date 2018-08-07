@@ -27,12 +27,12 @@ prefix . :1 := sexp.list
 prefix ! :2 := sexp.symbol
 prefix # :3 := sexp.literal
 
-class has_from_sexp (α : Type _) :=
+class has_from_sexp (α : Type u) :=
 (from_sexp {} : sexp → except string α )
 
 export has_from_sexp (from_sexp)
 
-class has_to_sexp (α : Type _) :=
+class has_to_sexp (α : Type u) :=
 (to_sexp {} : α → sexp)
 export has_to_sexp (to_sexp)
 

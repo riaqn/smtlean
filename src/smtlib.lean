@@ -2,18 +2,22 @@ import system.io
 import .sexp
 import .common
 
-structure declare : Type :=
-  (symbol : string)
-  (sort : string)
-
 attribute [reducible]
 def sort := string
+
+structure declare : Type :=
+  (symbol : symbol)
+  (sort : sort)
 
 -- term as in smtlib
 inductive term : Type
 | literal : literal → term
 | symbol : symbol → term
 | app : symbol → list term → term -- application
+
+structure query :=
+  (declares : list declare)
+  (asserts : list term)
 
 -- a value assignment in model
 structure value :=

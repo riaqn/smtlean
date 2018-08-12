@@ -109,10 +109,15 @@ meta def ref_term : reflect term := λ c t, match t with
 | term.app "and" [t0, t1] := do t0 ← ref_term c t0,
 t1 ← ref_term c t1,
 return $ ``(%%(t0) ∧ %%(t1))
+| term.app "or" [t0, t1] := do t0 ← ref_term c t0,
+t1 ← ref_term c t1,
+return $ ``(%%(t0) ∨ %%(t1))
+
 | term.app "not" [t'] := do t' ← ref_term c t',
 return $ ``(¬ %%(t'))
+
 | term.app "p_app" [t'] := do t' ← ref_term c t',
-return $ ``(p_app %%(t'))
+return $ ``(@coe_sort bool coe_sort_bool %%(t'))
 | term.app "impl" [t0, t1] := do t0 ← ref_term c t0,
                                 t1 ← ref_term c t1,
                                 return $ ``(%%(t0) → %%(t1))
@@ -259,9 +264,9 @@ in match p with
 | _ := except.error $ "unrecognized proof" ++ (to_string p)
 end
 
-meta def ref_check : context → sexp → except error (pexpr × option type) := λ c p,
+meta def ref_check : sexp → except error (pexpr × option type) := λ p,
 match p with
-| . [!"check", p'] := ref_proof c p'
+| . [!"check", p'] := ref_proof mk_context p'
 | _ := except.error "has to start with 'check'"
 end
 

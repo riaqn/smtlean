@@ -2,9 +2,9 @@ import ..smtlib
 
 def solve_type := io (except string (except sexp model))
 
-def solve (declares : list declare) (asserts : list term) : solve_type :=
+def solve (q : query) : solve_type :=
 do child ← io.proc.spawn{
-    cmd := "/home/riaqn/.local/bin/cvc4",
+    cmd := "/usr/bin/cvc4",
     args := ["--lang=smt2.6", "--no-interactive", "--produce-models", "--proof"],
     stdin := io.process.stdio.piped,
     stdout := io.process.stdio.piped,
@@ -15,11 +15,13 @@ do child ← io.proc.spawn{
   let stdout := child.stdout,
 
   -- yes you need to flush - a trick that costed me two hours
-  let write_cmd := λ c : cmd, (io.fs.put_str_ln stdin $ to_string c) >> io.fs.flush stdin,
+  let write_cmd := λ c : cmd, (do
+  (io.fs.put_str_ln stdin $ to_string c) >> io.fs.flush stdin
+  ),
 
   write_cmd $ cmd.set_logic "QF_LIA",
-  monad.mapm' (λ d, write_cmd $ cmd.declare_const d) declares,
-  monad.mapm' (λ t, write_cmd $ cmd.assert t) asserts,
+  monad.mapm' (λ d, write_cmd $ cmd.declare_const d) q.declares,
+  monad.mapm' (λ t, write_cmd $ cmd.assert t) q.asserts,
 
   write_cmd $ cmd.check_sat,
   sat ← buffer.to_string <$> io.fs.get_line stdout,

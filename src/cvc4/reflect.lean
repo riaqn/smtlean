@@ -1,6 +1,6 @@
 import ..smtlib
 
-import .smt
+import .sig.smt
 
 namespace reflect
 
@@ -56,12 +56,15 @@ meta def is_some {α β : Type} :  option α → β → except β α := λ o s, 
 end
 
 attribute [reducible]
-meta def error := string
+meta def error := format
 
 meta def reflect (α : Type) := context → α → except error pexpr
 meta def parse (α : Type) := sexp → except error α
 
-meta def parse_term : parse term := from_sexp
+meta def parse_term : parse term := λ s, match from_sexp s with
+| except.error e := except.error $ has_to_format.to_format e
+| except.ok a := except.ok a
+end
 
 meta def parse_clause : parse clause
 | (! "cln") := return []
@@ -155,9 +158,6 @@ def Q {α : Prop} (β γ : Prop) : (¬ α ∨ β) → (α ∨ γ) → (β ∨ γ
 | _ (or.inr c) := or.inr c
 | (or.inr b) _ := or.inl b
 
-def clausify_false : false → false := id
-def contra (α : Prop) (a : α) (na : ¬ α): false := na a
-
 def or.swap {α β γ : Prop} : α ∨ (β ∨ γ) → β ∨ (α ∨ γ) := (or.assoc.mp) ∘ (or.imp_left (or_comm α β).mp) ∘ (or.assoc.mpr)
 
 -- proves swap n and n+1 doesn't change meaning
@@ -175,8 +175,11 @@ meta def gen_line : nat → pexpr
 | 0 :=``(id)
 | (n + 1) := ``(or.assoc.mp ∘ (or.imp_right %%(gen_line n)))
 
+meta structure config :=
+(env : environment)
+
 -- mostly option.none except for clauses
-meta def ref_proof : context → sexp → except error (pexpr × option type) := λ c p,
+meta def ref_proof (cfg : config) : context → sexp → except error (pexpr × option type) := λ c p,
 
 let
 is_holds : option type → string → except error clause := (λ ty s, match ty with
@@ -191,7 +194,7 @@ pv ← match c.a2v a with
 | option.some pv := return pv
 | _ := except.error $ "atom not bound"
 end,
-let f:= if pol then ``(asf) else ``(ast),
+let f:= if pol then ``(sig.asf) else ``(sig.ast),
 return $ (apps f [xxx, xxx, lam v xxx p'], option.some $ type.holds $ (lit.mk pv pol) :: cl)
 ),
 
@@ -203,7 +206,14 @@ cl1 ← is_holds ty1 "R ty1",
 (n1, cl1') ← is_some (list.erase1 cl1 (lit.mk pv $ not pol)) "R cl1",
 let r := if pol then ``(R) else ``(Q),
 return $ (``((false_or _).mp $ %%(gen_push $ cl0.length - 1) $ %%(gen_line $ cl0.length - 1) $ %%(r) _ _ (%%(gen_push n0) %%p0) (%%(gen_push n1) %%p1)), option.some $ type.holds $ cl0' ++ cl1')
-)
+),
+
+find_sig : symbol → except error pexpr := (λ f, do let n := mk_str_name "sig" f,
+                                                  match cfg.env.get n with
+| exceptional.success _  := return $ @expr.local_const ff name.anonymous n binder_info.default xxx
+| exceptional.exception _ _ := except.error $ has_to_format.to_format ("theroem not found", f)
+end)
+
 
 in match p with
 | . [!"%", ! v, ty, p'] := do ty_ ← ref_type c ty,
@@ -231,42 +241,42 @@ in match p with
 | . [!"ast", _, _, _, !a, . [!"\\", !v, p']] := as a v p' ff
 | . [!"asf", _, _, _, !a, . [!"\\", !v, p']] := as a v p' tt
 | . [!"clausify_false", p'] := do (p'_, _) ← ref_proof c p',
-                                  return (app ``(clausify_false) p'_, option.some $ type.holds [])
-| . [!"contra", _, p0, p1] := do (p0_, _) ← ref_proof c p0,
-                                 (p1_, _) ← ref_proof c p1,
-                                 return ( apps ``(contra) [xxx, p0_, p1_], option.none)
+                                  return (app ``(sig.clausify_false) p'_, option.some $ type.holds [])
 | . [!"satlem_simplify", _, _, _, p0, . [!"\\", !v, p1]] := do (p0, ty0) ← ref_proof c p0,
                                                                (p1, ty1) ← ref_proof (c.push v ty0) p1,
                                                                return (app (lam v xxx p1) p0, ty1)
-| . [!"and_elim_1", _, _, p'] := do (p', _) ← ref_proof c p',
-                                    return (``(sig.and_elim_1 _ _ %%(p')), option.none)
-| . [!"and_elim_2", _, _, p'] := do (p', _) ← ref_proof c p',
-                                    return (``(sig.and_elim_2 _ _ %%(p')), option.none)
-| . [!"or_elim_1", _, _, p0, p1] := do (p0, _) ← ref_proof c p0,
-                                       (p1, _) ← ref_proof c p1,
-                                       return (``(sig.or_elim_1 _ _ %%(p0) %%(p1)), option.none)
-| . [!"or_elim_2", _, _, p0, p1] := do (p0, _) ← ref_proof c p0,
-                                       (p1, _) ← ref_proof c p1,
-                                       return (``(sig.or_elim_2 _ _ %%(p0) %%(p1)), option.none)
-| . [!"not_not_intro", _, p'] := do (p', _) ← ref_proof c p',
-                                    return (``(sig.not_not_intro _ %%(p')), option.none)
-| . [!"impl_elim", _, _, p'] := do (p', _) ← ref_proof c p',
-                                    return (``(sig.impl_elim _ _ %%(p')), option.none)
-
-
-| ! v := do (n, ty) ← match c.v2ty v with
-            | option.some (n, ty) := return (n, ty)
-            | _ := except.error "variable not bound"
-            end,
-            return $ (var n, ty)
 | . [!"R", _, _, p0, p1, !pv] := res p0 p1 pv tt
 | . [!"Q", _, _, p0, p1, !pv] := res p0 p1 pv ff
+| ! "_" := return (xxx, option.none)
+| ! v := match c.v2ty v with
+         | option.some (n, ty) := return (var n, ty)
+         | option.none := do f ← find_sig v, return (f, option.none)
+         end
+| . [! f, p0] := do (p0, _) ← ref_proof c p0,
+                   f ← find_sig f,
+                   return (``(%%(f) %%(p0)), option.none)
+| . [!f, p0, p1] := do (p0, _) ← ref_proof c p0,
+                       (p1, _) ← ref_proof c p1,
+                       f ← find_sig f,
+                       return (``(%%(f) %%(p0) %%(p1)), option.none)
+| . [!f, p0, p1, p2] := do (p0, _) ← ref_proof c p0,
+                           (p1, _) ← ref_proof c p1,
+                           (p2, _) ← ref_proof c p2,
+                           f ← find_sig f,
+                           return (``(%%(f) %%(p0) %%(p1) %%(p2)), option.none)
+| . [!f, p0, p1, p2, p3] := do (p0, _) ← ref_proof c p0,
+                               (p1, _) ← ref_proof c p1,
+                               (p2, _) ← ref_proof c p2,
+                               (p3, _) ← ref_proof c p3,
+                               f ← find_sig f,
+                               return (``(%%(f) %%(p0) %%(p1) %%(p2) %%(p3)), option.none)
+
 | _ := except.error $ "unrecognized proof" ++ (to_string p)
 end
 
-meta def ref_check : sexp → except error (pexpr × option type) := λ p,
+meta def ref_check (cfg : config) : sexp → except error (pexpr × option type) := λ p,
 match p with
-| . [!"check", p'] := ref_proof mk_context p'
+| . [!"check", p'] := ref_proof cfg mk_context p'
 | _ := except.error "has to start with 'check'"
 end
 

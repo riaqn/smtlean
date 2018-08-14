@@ -1,14 +1,6 @@
-
 import ..smtlib
 import .solve
 import .reflect
-
-
-@[inline] def bimpl : bool → bool → bool
-| tt ff  := ff
-| _ _ := tt
-
-def b2p := reflect.p_app
 
 meta def prop_to_formula  : expr → tactic term := λ t, match t with
 | `(%%(t0) → %%(t1)) := term.app "=>" <$> monad.sequence [prop_to_formula t0, prop_to_formula t1]
@@ -44,10 +36,11 @@ meta def prove : tactic unit :=
 do tg ← tactic.target,
    q ← target_to_query tg,
    r ← tactic.unsafe_run_io $ solve q,
+   env ← tactic.get_env,
    match r with
    | except.error e := tactic.fail e
    | except.ok (except.ok model) := tactic.fail $ to_string model
-   | except.ok (except.error proof) := match reflect.ref_check proof with
+   | except.ok (except.error proof) := match reflect.ref_check (reflect.config.mk env) proof with
                                     | except.error e := tactic.fail e
                                     | except.ok (t, _) := do
                                     tactic.to_expr ``(classical.by_contradiction) >>= tactic.apply,
@@ -57,4 +50,12 @@ do tg ← tactic.target,
    end
 
 
-def test : (∀ (a: bool) (b : bool), ¬ (a ∧ ¬ b ∧ (a → b))) := by do prove
+
+def test2 : ∀ (a b : bool), a → b → a ∧ b := by do prove
+def test3 : ∀ (a b : bool), a → a ∨ b := by do prove
+def test4 : ∀ (a b: bool), ¬ (a ∧ ¬ b ∧ (a → b)) := by do prove
+def test5 : ∀ a : bool, ¬ (a ∧ ¬ a) := by do prove
+#print test5
+
+
+

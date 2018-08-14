@@ -4,7 +4,7 @@ def solve_type := io (except string (except sexp model))
 
 def solve (q : query) : solve_type :=
 do child ← io.proc.spawn{
-    cmd := "/usr/bin/cvc4",
+    cmd := "cvc4",
     args := ["--lang=smt2.6", "--no-interactive", "--produce-models", "--proof"],
     stdin := io.process.stdio.piped,
     stdout := io.process.stdio.piped,

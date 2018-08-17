@@ -49,13 +49,8 @@ do tg ← tactic.target,
                                     end
    end
 
-
-
+def test1 : ∀ (a b c d : bool), (a ∧ b ∧ c) → (a → b ∨ b ∧ c) := by do prove
 def test2 : ∀ (a b : bool), a → b → a ∧ b := by do prove
 def test3 : ∀ (a b : bool), a → a ∨ b := by do prove
 def test4 : ∀ (a b: bool), ¬ (a ∧ ¬ b ∧ (a → b)) := by do prove
 def test5 : ∀ a : bool, ¬ (a ∧ ¬ a) := by do prove
-#print test5
-
-
-

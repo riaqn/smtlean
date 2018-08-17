@@ -1,7 +1,35 @@
 namespace sig
 
+attribute [reducible]
+def type := Type
+
+attribute [reducible]
+def formula := Prop
+
+attribute [reducible]
+def th_holds : Prop → Prop :=  id
+
+def true := true
+def false := false
+
+def not := not
+def and := and
+def or := or
+def impl := (->)
+def iff := (↔)
+def xor := xor
+def ifte := ite
+
+def sort := Type
+
+def term : sort → Type := id
+
+def Bool : sort := bool
+
 def clausify_false (x : false) : false := x
 def th_let_pf (α : Prop) (x : α) (y : α → false) : false := y x
+
+def p_app := @coe_sort bool coe_sort_bool
 
 -- natural deduction rules; Used for CNF
 def iff_symm (α : Prop) : α ↔ α := iff.intro id id
@@ -66,7 +94,6 @@ def xor_elim_2 (α β : Prop) (x : xor α β) : α ∨ β := match x with
 end
 
 def not_xor_elim (α β : Prop) (x : ¬ (xor α β)) : α ↔ β := iff.intro (λ a, classical.by_contradiction $ λ nb, x $ or.inl (and.intro a nb)) (λ b, classical.by_contradiction $ λ na, x $ or.inr (and.intro b na))
-
 
 -- For theory lemmas
 def ast (α β : Prop) (f : α → β) : ¬ α ∨ β := match classical.em α with

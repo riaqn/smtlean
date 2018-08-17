@@ -1,6 +1,8 @@
 import ..smtlib
 
+import .sig.sat
 import .sig.smt
+import .sig.th_base
 
 namespace reflect
 
@@ -61,24 +63,6 @@ meta def error := format
 meta def reflect (α : Type) := context → α → except error pexpr
 meta def parse (α : Type) := sexp → except error α
 
-meta def parse_term : parse term := λ s, match from_sexp s with
-| except.error e := except.error $ has_to_format.to_format e
-| except.ok a := except.ok a
-end
-
-meta def parse_clause : parse clause
-| (! "cln") := return []
-| _ := except.error "uncognized clause"
-
-meta def parse_sort : parse sort
-| (! sr) := return sr
-| _ := except.error "unrecognized sort"
-
-def p_app : bool → Prop
-| tt := true
-| ff := false
-
-
 meta def app := @expr.app ff
 meta def lam := λ v ty t, @expr.lam ff v (binder_info.default) ty t
 meta def var := @expr.var ff
@@ -98,54 +82,6 @@ meta def ref_clause : reflect clause := λ c cl, match cl with
 | (lit.mk pv ff) :: xs := do n ← is_some (c.v2n pv) "pvar not bound",
                              e ← ref_clause c xs,
                              return $ ``((¬ %%(var n)) ∨ %%(e))
-end
-
-meta def ref_sort : reflect sort := λ c s, match s with
-| "Bool" := return ``(bool)
-| _ := except.error $ "unrecognized sort " ++ s
-end
-
-meta def ref_term : reflect term := λ c t, match t with
-| term.symbol "true" := return ``(true)
-| term.symbol "false" := return ``(false)
-| term.symbol v := var <$> is_some (c.v2n v) "unbound variable"
-| term.app "and" [t0, t1] := do t0 ← ref_term c t0,
-t1 ← ref_term c t1,
-return $ ``(%%(t0) ∧ %%(t1))
-| term.app "or" [t0, t1] := do t0 ← ref_term c t0,
-t1 ← ref_term c t1,
-return $ ``(%%(t0) ∨ %%(t1))
-
-| term.app "not" [t'] := do t' ← ref_term c t',
-return $ ``(¬ %%(t'))
-
-| term.app "p_app" [t'] := do t' ← ref_term c t',
-return $ ``(@coe_sort bool coe_sort_bool %%(t'))
-| term.app "impl" [t0, t1] := do t0 ← ref_term c t0,
-                                t1 ← ref_term c t1,
-                                return $ ``(%%(t0) → %%(t1))
-| _ := except.error $ "unrecognized term " ++ to_string  t
-end
-
-meta def ref_type : reflect sexp := λ c ty, match ty with
-| . [!"th_holds", for] := do for_ ← parse_term for,
-ref_term c for_
-| . [!"holds", cl] := do cl_ ← parse_clause cl,
-ref_clause c cl_
-| . [!"term", sr] := do sr_ ← parse_sort sr,
-ref_sort c sr_
-| _ := except.error $ "unrecognized type " ++ to_string ty
-end
-
-axiom trust_f (α : Prop) : α
-def ast (α β : Prop) (f : α → β) : ¬ α ∨ β := match classical.em α with
-| or.inl a := or.inr $ f a
-| or.inr na := or.inl na
-end
-
-def asf (α β : Prop) (f : ¬ α → β) : α ∨ β := match classical.em α with
-| or.inl a := or.inl a
-| or.inr na := or.inr $ f na
 end
 
 def R {α:Prop} (β γ : Prop) : (α ∨ β) → (¬ α ∨ γ) → (β ∨ γ)
@@ -216,35 +152,28 @@ end)
 
 
 in match p with
-| . [!"%", ! v, ty, p'] := do ty_ ← ref_type c ty,
-                              (p'_, _) ← ref_proof (c.push v option.none) p',
-                              return $ (lam v ty_ p'_, option.none)
+| . [!"%", ! v, ty, p'] := do (ty, _) ← ref_proof c ty,
+                              (p', _) ← ref_proof (c.push v option.none) p',
+                              return $ (lam v ty p', option.none)
+| . [!"\\", !v, p'] := do (p', _) ← ref_proof (c.push v option.none) p',
+                          return $ (lam v xxx p', option.none)
 | . [!":", ty, p'] := ref_proof c p' -- actually use the type ascription
-| . [!"@", ! v, t, p'] := do t ← parse_term t,
-                             t ← ref_term c t,
+| . [!"@", ! v, t, p'] := do (t, _) ← ref_proof c t,
                              (p'_, _) ← ref_proof (c.push v option.none) p',
                              return $ (elet (mk_simple_name v) xxx t p'_, option.none)
-| . [!"th_let_pf", _, p0, . [!"\\", !v, p1]] := do (p0, _) ← ref_proof c p0,
-                                                    (p1, _) ← ref_proof (c.push v option.none) p1,
-                                                    return (app (lam v xxx p1) p0, option.none)
-| . [!"trust_f", for] := do for_ ← parse_term for,
-                            for__ ← ref_term c for_,
-                            return $ (app ``(trust_f) for__, option.none)
-| . [!"decl_atom", for, . [!"\\", !pv, . [!"\\", !a, p']]] := do for_ ← parse_term for,
-                                                                for__ ← ref_term
-                                                                c for_,
-                                                                (p'_, _) ← ref_proof ((c.push pv option.none).bind a pv) p',
-                                                                return $ (app (lam pv xxx p'_) for__, option.none)
+| . [!"decl_atom", for, . [!"\\", !pv, . [!"\\", !a, p']]] := do (for, _) ← ref_proof c for,
+                                                                (p', _) ← ref_proof ((c.push pv option.none).bind a pv) p',
+                                                                return $ (app (lam pv xxx p') for, option.none)
 | . [!"satlem", _, _, p0, . [!"\\", !v, p1]] := do (p0, ty0) ← ref_proof c p0,
                                                    (p1, ty1) ← ref_proof (c.push v $ ty0) p1,
-                                                   return (app (lam v xxx p1) p0, option.none)
+                                                   return (``(sig.satlem _ _ %%p0 %%(lam v xxx p1)), ty1)
 | . [!"ast", _, _, _, !a, . [!"\\", !v, p']] := as a v p' ff
 | . [!"asf", _, _, _, !a, . [!"\\", !v, p']] := as a v p' tt
-| . [!"clausify_false", p'] := do (p'_, _) ← ref_proof c p',
-                                  return (app ``(sig.clausify_false) p'_, option.some $ type.holds [])
+| . [!"clausify_false", p'] := do (p', _) ← ref_proof c p',
+                                  return (``(sig.clausify_false %%(p')), option.some $ type.holds [])
 | . [!"satlem_simplify", _, _, _, p0, . [!"\\", !v, p1]] := do (p0, ty0) ← ref_proof c p0,
                                                                (p1, ty1) ← ref_proof (c.push v ty0) p1,
-                                                               return (app (lam v xxx p1) p0, ty1)
+                                                               return (``(sig.satlem_simplify _ _ %%p0 %%(lam v xxx p1)), ty1)
 | . [!"R", _, _, p0, p1, !pv] := res p0 p1 pv tt
 | . [!"Q", _, _, p0, p1, !pv] := res p0 p1 pv ff
 | ! "_" := return (xxx, option.none)
@@ -252,25 +181,10 @@ in match p with
          | option.some (n, ty) := return (var n, ty)
          | option.none := do f ← find_sig v, return (f, option.none)
          end
-| . [! f, p0] := do (p0, _) ← ref_proof c p0,
-                   f ← find_sig f,
-                   return (``(%%(f) %%(p0)), option.none)
-| . [!f, p0, p1] := do (p0, _) ← ref_proof c p0,
-                       (p1, _) ← ref_proof c p1,
-                       f ← find_sig f,
-                       return (``(%%(f) %%(p0) %%(p1)), option.none)
-| . [!f, p0, p1, p2] := do (p0, _) ← ref_proof c p0,
-                           (p1, _) ← ref_proof c p1,
-                           (p2, _) ← ref_proof c p2,
-                           f ← find_sig f,
-                           return (``(%%(f) %%(p0) %%(p1) %%(p2)), option.none)
-| . [!f, p0, p1, p2, p3] := do (p0, _) ← ref_proof c p0,
-                               (p1, _) ← ref_proof c p1,
-                               (p2, _) ← ref_proof c p2,
-                               (p3, _) ← ref_proof c p3,
-                               f ← find_sig f,
-                               return (``(%%(f) %%(p0) %%(p1) %%(p2) %%(p3)), option.none)
-
+| . ((! f) :: xs) := do f ← find_sig f,
+                        rs ← monad.mapm (ref_proof c) xs,
+                        let ps := rs.map (λ x, x.fst),
+                        return (apps f ps , option.none)
 | _ := except.error $ "unrecognized proof" ++ (to_string p)
 end
 
@@ -282,5 +196,3 @@ end
 
 
 end reflect
-
-

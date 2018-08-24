@@ -1,0 +1,19 @@
+#+TITLE: SMTlean: Enhancing Lean with SMT solvers
+#+AUTHOR: Zesen Qian
+
+This is a lean library that tries to incorporate the power of SMT solvers. With a single tactic a proposition will be either proved or disproved (with the counter-model given).
+
+Currently only booleans are supported; we only work with [[https://github.com/CVC4/CVC4][CVC4]] for now. For examples, refer to [[src/cvc4/tactic.lean]].
+
+* TODOs
+  - smtlib
+    - complete the parser according to the [[http://smtlib.cs.uiowa.edu/papers/smt-lib-reference-v2.6-r2017-07-18.pdf][smtlib specification]].
+  - CVC4
+    - add other theories(integers, reals, binary vectors, etc.)
+    - get rid of ~trust_f~. As of CVC4 1.6 for booleans the ~trust_f~ simply asserts an assumption which is superfluous. For other theories, theory-specific auto prover is needed, or we shall ask CVC4 developers to detail these proofs instead of ~trust_f~ assertion.
+  - add supports of other solvers([[https://github.com/Z3Prover/z3][Z3]], [[http://www.verit-solver.org/][veriT]])
+    - Z3 seems to have quite detailed theory specific proofs, but the documentation of the proof format and rules is lacking.
+    - veriT doesn't seem to be better than CVC4, proof-wise.
+
+* Acknowledgement
+This project is kindly funded by [[https://www.cmu.edu/dietrich/philosophy/research/lsec/fellowships.html][LSEC Fellowship]].
